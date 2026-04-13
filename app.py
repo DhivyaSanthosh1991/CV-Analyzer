@@ -1,4 +1,4 @@
-import os, json, hmac, hashlib, uuid, re
+import os, json, hmac, hashlib, uuid, re, io, base64
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 import anthropic
@@ -76,6 +76,55 @@ Return exactly this structure:
 }"""
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
+    """Extract plain text from PDF, DOCX, or TXT file bytes."""
+    fname = filename.lower()
+
+    if fname.endswith(".pdf"):
+        try:
+            import pdfplumber
+            text_parts = []
+            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                for page in pdf.pages:
+                    t = page.extract_text()
+                    if t:
+                        text_parts.append(t)
+            return "\n\n".join(text_parts)
+        except Exception as e:
+            return f"[PDF extraction error: {e}]"
+
+    elif fname.endswith(".docx"):
+        try:
+            from docx import Document
+            doc = Document(io.BytesIO(file_bytes))
+            paras = [p.text for p in doc.paragraphs if p.text.strip()]
+            return "\n".join(paras)
+        except Exception as e:
+            return f"[DOCX extraction error: {e}]"
+
+    else:
+        # Plain text — try UTF-8, fall back to latin-1
+        try:
+            return file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return file_bytes.decode("latin-1", errors="replace")
+
+
+@app.route("/api/extract-text", methods=["POST"])
+def extract_text():
+    """Accept a file upload and return extracted plain text."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    file_bytes = f.read()
+    text = extract_text_from_file(file_bytes, f.filename)
+    if not text or len(text.strip()) < 20:
+        return jsonify({"error": "Could not extract text from file"}), 422
+    return jsonify({"text": text[:6000]})
+
 
 @app.route("/")
 def index():
@@ -179,8 +228,9 @@ def verify_payment():
     full_result = session["result"]
 
     # Generate PDF
-    os.makedirs("/home/claude/workmoat/reports", exist_ok=True)
-    pdf_path = f"/home/claude/workmoat/reports/{session_id}.pdf"
+    reports_dir = os.path.join(os.path.dirname(__file__), "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    pdf_path = os.path.join(reports_dir, f"{session_id}.pdf")
     generate_report_pdf(full_result, pdf_path)
     session["pdf_path"] = pdf_path
 
