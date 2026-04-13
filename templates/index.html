@@ -519,21 +519,47 @@ input::placeholder{color:var(--text4)}
 const API='';
 let fc='',sid=null,pdata=null;
 
-document.getElementById('file-input').addEventListener('change',async e=>{
-  const f=e.target.files[0];if(!f)return;
-  document.getElementById('fname').textContent=f.name;
-  fc=await f.text().catch(()=>'');
-  if(fc)document.getElementById('cv-text').value=fc.slice(0,5000);
+async function extractFileText(file) {
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch(`${API}/api/extract-text`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return data.text || '';
+  } catch(e) {
+    console.warn('Server extraction failed, trying browser fallback:', e);
+    // fallback for plain text only
+    try { return await file.text(); } catch(_) { return ''; }
+  }
+}
+
+document.getElementById('file-input').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  document.getElementById('fname').textContent = '⏳ Reading ' + f.name + '…';
+  fc = await extractFileText(f);
+  if (fc) {
+    document.getElementById('cv-text').value = fc.slice(0, 5000);
+    document.getElementById('fname').textContent = '✓ ' + f.name;
+  } else {
+    document.getElementById('fname').textContent = '⚠ Could not read file — please paste your CV instead';
+  }
 });
-const dz=document.getElementById('drop-zone');
-dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('on')});
-dz.addEventListener('dragleave',()=>dz.classList.remove('on'));
-dz.addEventListener('drop',async e=>{
-  e.preventDefault();dz.classList.remove('on');
-  const f=e.dataTransfer.files[0];if(!f)return;
-  document.getElementById('fname').textContent=f.name;
-  fc=await f.text().catch(()=>'');
-  if(fc)document.getElementById('cv-text').value=fc.slice(0,5000);
+
+const dz = document.getElementById('drop-zone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('on'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('on'));
+dz.addEventListener('drop', async e => {
+  e.preventDefault(); dz.classList.remove('on');
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  document.getElementById('fname').textContent = '⏳ Reading ' + f.name + '…';
+  fc = await extractFileText(f);
+  if (fc) {
+    document.getElementById('cv-text').value = fc.slice(0, 5000);
+    document.getElementById('fname').textContent = '✓ ' + f.name;
+  } else {
+    document.getElementById('fname').textContent = '⚠ Could not read file — please paste your CV instead';
+  }
 });
 
 async function runAnalysis(){
