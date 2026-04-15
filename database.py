@@ -17,12 +17,15 @@ def init_db():
 
     c.executescript("""
     CREATE TABLE IF NOT EXISTS users (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        email       TEXT UNIQUE NOT NULL,
-        name        TEXT,
-        created_at  TEXT DEFAULT (datetime('now')),
-        last_login  TEXT
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        email         TEXT UNIQUE NOT NULL,
+        name          TEXT,
+        password_hash TEXT,
+        created_at    TEXT DEFAULT (datetime('now')),
+        last_login    TEXT
     );
+    -- Add password_hash column if it doesn't exist (migration)
+    
 
     CREATE TABLE IF NOT EXISTS otp_codes (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,5 +175,21 @@ def get_roadmap_progress(user_id, report_id):
             ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END
         """, (user_id, report_id)).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def migrate_db():
+    """Add new columns to existing tables safely."""
+    conn = get_db()
+    try:
+        # Add password_hash if missing
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if 'password_hash' not in cols:
+            conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            conn.commit()
+            print("Migrated: added password_hash column")
+    except Exception as e:
+        print(f"Migration note: {e}")
     finally:
         conn.close()
