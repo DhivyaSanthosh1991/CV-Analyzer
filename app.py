@@ -234,6 +234,14 @@ def verify_payment():
     generate_report_pdf(full_result, pdf_path)
     session["pdf_path"] = pdf_path
 
+    # Read PDF as base64 for direct browser download (survives stateless deploys)
+    pdf_b64 = ""
+    try:
+        with open(pdf_path, "rb") as f:
+            pdf_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception:
+        pass
+
     # Send email with PDF attachment
     email       = session.get("email", "")
     name        = full_result.get("name", "Professional")
@@ -253,12 +261,14 @@ def verify_payment():
     ] if k in full_result}
 
     return jsonify({
-        "success":      True,
+        "success":       True,
         "paid_sections": paid_sections,
-        "download_url": f"/api/download/{session_id}",
-        "email_sent":   email_sent,
-        "email":        email,
-        "email_error":  email_error
+        "download_url":  f"/api/download/{session_id}",
+        "pdf_b64":       pdf_b64,
+        "pdf_name":      f"WorkMoat_Report_{name.replace(' ','_')}.pdf",
+        "email_sent":    email_sent,
+        "email":         email,
+        "email_error":   email_error
     })
 
 
