@@ -2,7 +2,6 @@ import os, json, hmac, hashlib, uuid, re, io, base64
 from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, verify_jwt_in_request
-from jose.exceptions import JWTError
 import anthropic
 import razorpay
 from pdf_generator import generate_report_pdf
