@@ -6,12 +6,12 @@ import anthropic
 import razorpay
 from pdf_generator import generate_report_pdf
 from email_sender import send_report_email
-from database import (init_db, migrate_db, get_db,
+from database import (init_db, migrate_db,
                        save_report, get_user_reports, get_report_pdf,
                        save_roadmap_progress, toggle_roadmap_item, get_roadmap_progress,
                        save_cv_upload, save_cv_text, get_user_cv_uploads,
                        get_cv_upload, delete_cv_upload, get_cv_storage_stats,
-                       link_items_to_user)
+                       link_items_to_user, _conn as get_db_ctx)
 from auth import auth_bp
 from admin import admin_bp
 
