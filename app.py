@@ -6,11 +6,12 @@ import anthropic
 import razorpay
 from pdf_generator import generate_report_pdf
 from email_sender import send_report_email
-from database import (init_db, migrate_db, save_report, get_user_reports,
-                       get_report_pdf, save_roadmap_progress, toggle_roadmap_item,
-                       get_roadmap_progress, get_db,
+from database import (init_db, migrate_db, get_db,
+                       save_report, get_user_reports, get_report_pdf,
+                       save_roadmap_progress, toggle_roadmap_item, get_roadmap_progress,
                        save_cv_upload, save_cv_text, get_user_cv_uploads,
-                       get_cv_upload, delete_cv_upload, get_cv_storage_stats)
+                       get_cv_upload, delete_cv_upload, get_cv_storage_stats,
+                       link_items_to_user)
 from auth import auth_bp
 from admin import admin_bp
 
@@ -367,12 +368,7 @@ def link_report():
     user_id    = int(get_jwt_identity())
     session_id = request.get_json().get("session_id")
     if not session_id: return jsonify({"error": "Missing session_id"}), 400
-    conn = get_db()
-    conn.execute("UPDATE reports SET user_id=? WHERE session_id=? AND user_id IS NULL",
-                 (user_id, session_id))
-    conn.execute("UPDATE cv_uploads SET user_id=? WHERE session_id=? AND user_id IS NULL",
-                 (user_id, session_id))
-    conn.commit(); conn.close()
+    link_items_to_user(session_id, user_id)
     return jsonify({"success": True})
 
 
