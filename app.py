@@ -6,7 +6,8 @@ import anthropic
 import razorpay
 from pdf_generator import generate_report_pdf
 from email_sender import send_report_email
-from database import (init_db, migrate_db,
+from database import (init_db, migrate_db, init_sessions_table,
+                       session_set, session_get,
                        save_report, get_user_reports, get_report_pdf,
                        save_roadmap_progress, toggle_roadmap_item, get_roadmap_progress,
                        save_cv_upload, save_cv_text, get_user_cv_uploads,
@@ -37,12 +38,12 @@ app.register_blueprint(admin_bp)
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 razorpay_client  = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
-sessions: dict = {}
 
 # Init DB on startup
 with app.app_context():
     init_db()
     migrate_db()
+    init_sessions_table()
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an expert CV analyst and AI workforce advisor. Analyse the CV and return ONLY valid JSON — no markdown, no backticks, no preamble.
@@ -149,23 +150,22 @@ def extract_text():
     if not text or len(text.strip()) < 20:
         return jsonify({"error": "Could not extract text from file"}), 422
 
-    # Save file to CV storage for logged-in users
+    # Save CV for ALL users — link to user later if they sign in
     session_id = request.form.get("session_id") or str(uuid.uuid4())
     job_title  = request.form.get("job_title", "")
     industry   = request.form.get("industry", "")
     user_id    = get_current_user_id()
 
-    cv_upload_id = None
-    if user_id:
-        cv_upload_id = save_cv_upload(
-            session_id=session_id,
-            file_bytes=file_bytes,
-            filename=f.filename,
-            extracted_text=text,
-            job_title=job_title,
-            industry=industry,
-            user_id=user_id
-        )
+    # Always save the file — even for anonymous users
+    cv_upload_id = save_cv_upload(
+        session_id=session_id,
+        file_bytes=file_bytes,
+        filename=f.filename,
+        extracted_text=text,
+        job_title=job_title,
+        industry=industry,
+        user_id=user_id  # None if not logged in — linked later on sign-in
+    )
 
     return jsonify({
         "text":          text[:6000],
@@ -200,18 +200,18 @@ def analyse():
         return jsonify({"error": str(e)}), 500
 
     session_id = str(uuid.uuid4())
-    sessions[session_id] = {"result": result, "paid": False}
+    session_set(session_id, result=result, paid=False)
 
     user_id = get_current_user_id()
 
-    # If CV was pasted (no file upload), save the text now
-    if user_id and not cv_upload_id:
+    # If CV was pasted (no file upload), save the text for everyone
+    if not cv_upload_id:
         cv_upload_id = save_cv_text(
             session_id=session_id,
             extracted_text=cv_text,
             job_title=job_title,
             industry=industry,
-            user_id=user_id
+            user_id=user_id  # None if anonymous — linked on sign-in
         )
 
     # Save report linked to cv_upload
@@ -242,7 +242,7 @@ def create_order():
             "receipt": f"wm_{session_id[:8]}",
             "notes":   {"session_id": session_id, "email": email}
         })
-        sessions[session_id]["order_id"] = order["id"]
+        session_set(session_id, order_id=order["id"])
         return jsonify({"order_id": order["id"], "amount": REPORT_PRICE_PAISE,
                         "currency": "INR", "key": RAZORPAY_KEY_ID})
     except Exception as e:
@@ -263,11 +263,11 @@ def verify_payment():
     if not hmac.compare_digest(expected_sig, signature):
         return jsonify({"error": "Payment verification failed"}), 400
 
-    session = sessions.get(session_id)
+    session = session_get(session_id)
     if not session:
-        return jsonify({"error": "Session not found"}), 404
+        return jsonify({"error": "Session not found — please re-analyse your CV"}), 404
 
-    session["paid"] = True
+    session_set(session_id, paid=True)
     full_result = session["result"]
 
     # Generate PDF
@@ -275,7 +275,7 @@ def verify_payment():
     os.makedirs(reports_dir, exist_ok=True)
     pdf_path = os.path.join(reports_dir, f"{session_id}.pdf")
     generate_report_pdf(full_result, pdf_path)
-    session["pdf_path"] = pdf_path
+    session_set(session_id, pdf_b64=pdf_b64)
 
     pdf_b64 = ""
     try:
@@ -284,14 +284,27 @@ def verify_payment():
     except Exception:
         pass
 
-    # Send email
-    email      = session.get("email","")
+    # Send email — use registered email if available
     name       = full_result.get("name","Professional")
     role       = full_result.get("role","–")
+    email      = session.get("email","")
     email_sent = False
-    if email:
-        ok, _ = send_report_email(email, name, role, full_result, pdf_path)
-        email_sent = ok
+
+    # Try to get registered email for logged-in user
+    user_id_for_email = get_current_user_id()
+    if user_id_for_email:
+        from database import get_user_by_id
+        u = get_user_by_id(user_id_for_email)
+        if u and u.get("email"):
+            email = u["email"]  # Use registered email
+
+    if email and pdf_path and os.path.exists(pdf_path):
+        try:
+            ok, _ = send_report_email(email, name, role, full_result, pdf_path)
+            email_sent = ok
+        except Exception as e:
+            print(f"Email send error: {e}")
+            email_sent = False
 
     # Save paid report & link to user
     user_id    = get_current_user_id()
@@ -428,6 +441,33 @@ def delete_cv(upload_id):
         return jsonify({"error": "CV not found or already deleted"}), 404
     return jsonify({"success": True})
 
+
+
+@app.route("/health")
+def health():
+    """Health check — shows DB connection status."""
+    import os
+    status = {
+        "app": "ok",
+        "db_type": "postgresql" if os.getenv("DATABASE_URL") else "sqlite",
+        "db_url_set": bool(os.getenv("DATABASE_URL")),
+    }
+    try:
+        from database import _q
+        result = _q("SELECT COUNT(*) as c FROM users", fetchone=True)
+        status["db_connected"] = True
+        status["users_count"] = (result or {}).get("c", 0)
+        # Check tables exist
+        if os.getenv("DATABASE_URL"):
+            tables = _q("""SELECT table_name FROM information_schema.tables 
+                          WHERE table_schema='public'""", many=True)
+            status["tables"] = [t.get("table_name") for t in (tables or [])]
+        status["db_status"] = "healthy"
+    except Exception as e:
+        status["db_connected"] = False
+        status["db_error"] = str(e)
+        status["db_status"] = "error"
+    return jsonify(status)
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
