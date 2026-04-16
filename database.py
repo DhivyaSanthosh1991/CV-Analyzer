@@ -19,7 +19,9 @@ if DATABASE_URL:
         if _pool is None:
             _pool = pgpool.SimpleConnectionPool(
                 1, 5, DATABASE_URL, sslmode="require",
+                connect_timeout=10,
                 cursor_factory=psycopg2.extras.RealDictCursor)
+            print("PostgreSQL pool created OK")
         return _pool
 
     @contextmanager
@@ -131,6 +133,11 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_roadmap_user ON roadmap_progress(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_cv_user      ON cv_uploads(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_cv_session   ON cv_uploads(session_id)",
+        """CREATE TABLE IF NOT EXISTS cv_sessions (
+            session_id TEXT PRIMARY KEY,
+            result_json TEXT, paid INTEGER DEFAULT 0,
+            email TEXT, order_id TEXT, pdf_b64 TEXT, pdf_path TEXT,
+            created_at TEXT DEFAULT (datetime('now')))""",
     ]
     if DATABASE_URL:
         with _conn() as c:
@@ -404,3 +411,68 @@ def admin_get_all_cvs_for_export():
         c.created_at, u.email as user_email, u.name as user_name, c.job_title
         FROM cv_uploads c LEFT JOIN users u ON u.id=c.user_id
         ORDER BY c.created_at DESC""", many=True)
+
+
+# ── Session storage (replaces in-memory dict) ─────────────────────────────────
+def init_sessions_table():
+    """Create sessions table if not exists."""
+    if DATABASE_URL:
+        _q("""CREATE TABLE IF NOT EXISTS cv_sessions (
+            session_id TEXT PRIMARY KEY,
+            result_json TEXT,
+            paid INTEGER DEFAULT 0,
+            email TEXT,
+            order_id TEXT,
+            pdf_b64 TEXT,
+            pdf_path TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )""")
+    else:
+        with _conn() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS cv_sessions (
+                session_id TEXT PRIMARY KEY,
+                result_json TEXT,
+                paid INTEGER DEFAULT 0,
+                email TEXT,
+                order_id TEXT,
+                pdf_b64 TEXT,
+                pdf_path TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )""")
+
+def session_set(session_id, result=None, paid=None, email=None,
+                order_id=None, pdf_b64=None, pdf_path=None):
+    """Upsert session data."""
+    existing = _q(f"SELECT session_id FROM cv_sessions WHERE session_id={PH}",
+                  (session_id,), one=True)
+    if existing:
+        updates = []
+        params  = []
+        if result   is not None: updates.append(f"result_json={PH}");  params.append(json.dumps(result))
+        if paid     is not None: updates.append(f"paid={PH}");         params.append(1 if paid else 0)
+        if email    is not None: updates.append(f"email={PH}");        params.append(email)
+        if order_id is not None: updates.append(f"order_id={PH}");     params.append(order_id)
+        if pdf_b64  is not None: updates.append(f"pdf_b64={PH}");      params.append(pdf_b64)
+        if pdf_path is not None: updates.append(f"pdf_path={PH}");     params.append(pdf_path)
+        if updates:
+            params.append(session_id)
+            _q(f"UPDATE cv_sessions SET {', '.join(updates)} WHERE session_id={PH}", params)
+    else:
+        _q(f"""INSERT INTO cv_sessions
+            (session_id, result_json, paid, email, order_id, pdf_b64, pdf_path)
+            VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH})""",
+           (session_id,
+            json.dumps(result) if result else None,
+            1 if paid else 0,
+            email, order_id, pdf_b64, pdf_path))
+
+def session_get(session_id):
+    """Get session data as dict."""
+    row = _q(f"SELECT * FROM cv_sessions WHERE session_id={PH}",
+             (session_id,), one=True)
+    if not row: return None
+    d = dict(row)
+    if d.get("result_json"):
+        try: d["result"] = json.loads(d["result_json"])
+        except: d["result"] = {}
+    return d
