@@ -1,7 +1,7 @@
 import os, io, base64, json, zipfile
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file, render_template_string, abort
-from database import get_db
+from database import get_db, _exec, _row, _rows, DATABASE_URL
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -346,125 +346,99 @@ def admin_panel(secret_key):
 @admin_bp.route("/admin/api/stats")
 @require_admin
 def admin_stats():
-    conn = get_db()
-    try:
-        stats = {}
-        stats["total_users"]    = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        stats["total_cvs"]      = conn.execute("SELECT COUNT(*) FROM cv_uploads").fetchone()[0]
-        stats["total_reports"]  = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
-        stats["paid_reports"]   = conn.execute("SELECT COUNT(*) FROM reports WHERE paid=1").fetchone()[0]
-        r = conn.execute("SELECT ROUND(SUM(file_size_kb)/1024.0,2) FROM cv_uploads").fetchone()[0]
-        stats["total_storage_mb"] = r or 0
-        return jsonify(stats)
-    finally:
-        conn.close()
+    stats = {}
+    stats["total_users"]      = (_exec("SELECT COUNT(*) as c FROM users",      fetchone=True) or {}).get("c", 0)
+    stats["total_cvs"]        = (_exec("SELECT COUNT(*) as c FROM cv_uploads", fetchone=True) or {}).get("c", 0)
+    stats["total_reports"]    = (_exec("SELECT COUNT(*) as c FROM reports",    fetchone=True) or {}).get("c", 0)
+    stats["paid_reports"]     = (_exec("SELECT COUNT(*) as c FROM reports WHERE paid=1", fetchone=True) or {}).get("c", 0)
+    r = _exec("SELECT ROUND(SUM(file_size_kb)/1024.0,2) as s FROM cv_uploads", fetchone=True)
+    stats["total_storage_mb"] = (r or {}).get("s") or 0
+    return jsonify(stats)
 
 
 @admin_bp.route("/admin/api/users")
 @require_admin
 def admin_users():
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT u.id, u.email, u.name, u.created_at, u.last_login,
-                   COUNT(DISTINCT c.id) as cv_count,
-                   COUNT(DISTINCT r.id) as report_count,
-                   SUM(CASE WHEN r.paid=1 THEN 1 ELSE 0 END) as paid_count
-            FROM users u
-            LEFT JOIN cv_uploads c ON c.user_id = u.id
-            LEFT JOIN reports    r ON r.user_id = u.id
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
-        """).fetchall()
-        return jsonify([dict(r) for r in rows])
-    finally:
-        conn.close()
+    rows = _exec("""
+        SELECT u.id, u.email, u.name, u.created_at, u.last_login,
+               COUNT(DISTINCT c.id) as cv_count,
+               COUNT(DISTINCT r.id) as report_count,
+               SUM(CASE WHEN r.paid=1 THEN 1 ELSE 0 END) as paid_count
+        FROM users u
+        LEFT JOIN cv_uploads c ON c.user_id = u.id
+        LEFT JOIN reports    r ON r.user_id = u.id
+        GROUP BY u.id
+        ORDER BY u.created_at DESC
+    """, fetchall=True)
+    return jsonify(_rows(rows))
 
 
 @admin_bp.route("/admin/api/cvs")
 @require_admin
 def admin_cvs():
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT c.id, c.filename, c.file_type, c.file_size_kb,
-                   c.job_title, c.industry, c.upload_source, c.created_at,
-                   substr(c.extracted_text,1,300) as text_preview,
-                   u.email as user_email, u.name as user_name,
-                   r.overall_score, r.ai_susceptibility_score, r.paid as report_paid
-            FROM cv_uploads c
-            LEFT JOIN users   u ON u.id = c.user_id
-            LEFT JOIN reports r ON r.cv_upload_id = c.id
-            ORDER BY c.created_at DESC
-        """).fetchall()
-        return jsonify([dict(r) for r in rows])
-    finally:
-        conn.close()
+    rows = _exec("""
+        SELECT c.id, c.filename, c.file_type, c.file_size_kb,
+               c.job_title, c.industry, c.upload_source, c.created_at,
+               substr(c.extracted_text, 1, 300) as text_preview,
+               u.email as user_email, u.name as user_name,
+               r.overall_score, r.ai_susceptibility_score, r.paid as report_paid
+        FROM cv_uploads c
+        LEFT JOIN users   u ON u.id = c.user_id
+        LEFT JOIN reports r ON r.cv_upload_id = c.id
+        ORDER BY c.created_at DESC
+    """, fetchall=True)
+    return jsonify(_rows(rows))
 
 
 @admin_bp.route("/admin/api/reports")
 @require_admin
 def admin_reports():
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT r.id, r.session_id, r.name, r.role,
-                   r.overall_score, r.ai_susceptibility_score, r.ai_augment_score,
-                   r.automation_risk_level, r.paid, r.created_at,
-                   u.email as user_email, u.name as user_name
-            FROM reports r
-            LEFT JOIN users u ON u.id = r.user_id
-            ORDER BY r.created_at DESC
-        """).fetchall()
-        return jsonify([dict(r) for r in rows])
-    finally:
-        conn.close()
+    rows = _exec("""
+        SELECT r.id, r.session_id, r.name, r.role,
+               r.overall_score, r.ai_susceptibility_score, r.ai_augment_score,
+               r.automation_risk_level, r.paid, r.created_at,
+               u.email as user_email, u.name as user_name
+        FROM reports r
+        LEFT JOIN users u ON u.id = r.user_id
+        ORDER BY r.created_at DESC
+    """, fetchall=True)
+    return jsonify(_rows(rows))
 
 
 @admin_bp.route("/admin/api/cv/<int:upload_id>")
 @require_admin
 def admin_get_cv(upload_id):
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT * FROM cv_uploads WHERE id=?", (upload_id,)).fetchone()
-        if not row:
-            return jsonify({"error": "CV not found"}), 404
-        return jsonify(dict(row))
-    finally:
-        conn.close()
+    P = "%" + "s" if DATABASE_URL else "?"
+    row = _exec(f"SELECT * FROM cv_uploads WHERE id={P}", (upload_id,), fetchone=True)
+    if not row:
+        return jsonify({"error": "CV not found"}), 404
+    return jsonify(_row(row))
 
 
 @admin_bp.route("/admin/api/report-pdf/<session_id>")
 @require_admin
 def admin_get_report_pdf(session_id):
-    conn = get_db()
-    try:
-        row = conn.execute(
-            "SELECT pdf_b64, name FROM reports WHERE session_id=? AND paid=1",
-            (session_id,)).fetchone()
-        if not row or not row["pdf_b64"]:
-            return jsonify({"error": "PDF not found or report not paid"}), 404
-        return jsonify(dict(row))
-    finally:
-        conn.close()
+    P = "%" + "s" if DATABASE_URL else "?"
+    row = _exec(f"SELECT pdf_b64, name FROM reports WHERE session_id={P} AND paid=1",
+                (session_id,), fetchone=True)
+    if not row or not (row.get("pdf_b64")):
+        return jsonify({"error": "PDF not found or report not paid"}), 404
+    return jsonify(_row(row))
 
 
 @admin_bp.route("/admin/api/export-zip")
 @require_admin
 def admin_export_zip():
     """Export all CV files as a ZIP — streamed directly."""
-    conn = get_db()
-    try:
-        rows = conn.execute("""
-            SELECT c.id, c.filename, c.file_type, c.file_b64, c.extracted_text,
-                   c.created_at, u.email as user_email, u.name as user_name,
-                   c.job_title
-            FROM cv_uploads c
-            LEFT JOIN users u ON u.id = c.user_id
-            ORDER BY c.created_at DESC
-        """).fetchall()
-    finally:
-        conn.close()
+    rows = _exec("""
+        SELECT c.id, c.filename, c.file_type, c.file_b64, c.extracted_text,
+               c.created_at, u.email as user_email, u.name as user_name,
+               c.job_title
+        FROM cv_uploads c
+        LEFT JOIN users u ON u.id = c.user_id
+        ORDER BY c.created_at DESC
+    """, fetchall=True)
+    rows = [dict(r) for r in (rows or [])]
 
     buf = io.BytesIO()
     manifest_lines = ["id,filename,user_email,user_name,job_title,uploaded_at"]
