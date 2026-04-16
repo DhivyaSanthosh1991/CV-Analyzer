@@ -6,8 +6,13 @@ import anthropic
 import razorpay
 from pdf_generator import generate_report_pdf
 from email_sender import send_report_email
-from database import init_db, save_report, get_user_reports, get_report_pdf, save_roadmap_progress, toggle_roadmap_item, get_roadmap_progress, get_db
+from database import (init_db, migrate_db, save_report, get_user_reports,
+                       get_report_pdf, save_roadmap_progress, toggle_roadmap_item,
+                       get_roadmap_progress, get_db,
+                       save_cv_upload, save_cv_text, get_user_cv_uploads,
+                       get_cv_upload, delete_cv_upload, get_cv_storage_stats)
 from auth import auth_bp
+from admin import admin_bp
 
 app = Flask(__name__)
 CORS(app)
@@ -18,6 +23,7 @@ RAZORPAY_KEY_ID     = os.getenv("RAZORPAY_KEY_ID",    "YOUR_RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "YOUR_RAZORPAY_SECRET")
 SENDGRID_API_KEY    = os.getenv("SENDGRID_API_KEY",    "YOUR_SENDGRID_API_KEY")
 JWT_SECRET          = os.getenv("JWT_SECRET_KEY",      "workmoat-dev-secret-change-in-prod")
+ADMIN_SECRET        = os.getenv("ADMIN_SECRET_KEY",   "workmoat-admin-change-this")
 REPORT_PRICE_PAISE  = 19900
 
 app.config["JWT_SECRET_KEY"]       = JWT_SECRET
@@ -25,6 +31,7 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = False  # no expiry — user stays logge
 
 jwt_manager = JWTManager(app)
 app.register_blueprint(auth_bp)
+app.register_blueprint(admin_bp)
 
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 razorpay_client  = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
@@ -34,6 +41,7 @@ sessions: dict = {}
 # Init DB on startup
 with app.app_context():
     init_db()
+    migrate_db()
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an expert CV analyst and AI workforce advisor. Analyse the CV and return ONLY valid JSON — no markdown, no backticks, no preamble.
@@ -134,17 +142,44 @@ def extract_text():
     f = request.files["file"]
     if not f.filename:
         return jsonify({"error": "Empty filename"}), 400
-    text = extract_text_from_file(f.read(), f.filename)
+
+    file_bytes = f.read()
+    text = extract_text_from_file(file_bytes, f.filename)
     if not text or len(text.strip()) < 20:
         return jsonify({"error": "Could not extract text from file"}), 422
-    return jsonify({"text": text[:6000]})
+
+    # Save file to CV storage for logged-in users
+    session_id = request.form.get("session_id") or str(uuid.uuid4())
+    job_title  = request.form.get("job_title", "")
+    industry   = request.form.get("industry", "")
+    user_id    = get_current_user_id()
+
+    cv_upload_id = None
+    if user_id:
+        cv_upload_id = save_cv_upload(
+            session_id=session_id,
+            file_bytes=file_bytes,
+            filename=f.filename,
+            extracted_text=text,
+            job_title=job_title,
+            industry=industry,
+            user_id=user_id
+        )
+
+    return jsonify({
+        "text":          text[:6000],
+        "session_id":    session_id,
+        "cv_upload_id":  cv_upload_id
+    })
 
 @app.route("/api/analyse", methods=["POST"])
 def analyse():
-    data      = request.get_json()
-    cv_text   = (data.get("cv_text") or "").strip()
-    job_title = (data.get("job_title") or "").strip()
-    industry  = (data.get("industry") or "").strip()
+    data         = request.get_json()
+    cv_text      = (data.get("cv_text") or "").strip()
+    job_title    = (data.get("job_title") or "").strip()
+    industry     = (data.get("industry") or "").strip()
+    cv_upload_id = data.get("cv_upload_id")   # passed from frontend if file was uploaded
+
     if len(cv_text) < 60:
         return jsonify({"error": "CV text too short"}), 400
 
@@ -156,24 +191,36 @@ def analyse():
         message = anthropic_client.messages.create(
             model="claude-sonnet-4-20250514", max_tokens=1500,
             system=SYSTEM_PROMPT,
-            messages=[{"role":"user","content":user_msg}]
+            messages=[{"role": "user", "content": user_msg}]
         )
         raw    = message.content[0].text
-        result = json.loads(re.sub(r"```json|```","",raw).strip())
+        result = json.loads(re.sub(r"```json|```", "", raw).strip())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
     session_id = str(uuid.uuid4())
     sessions[session_id] = {"result": result, "paid": False}
 
-    # Save to DB (unlinked until user signs in or pays)
     user_id = get_current_user_id()
-    save_report(session_id, result, paid=False, user_id=user_id)
+
+    # If CV was pasted (no file upload), save the text now
+    if user_id and not cv_upload_id:
+        cv_upload_id = save_cv_text(
+            session_id=session_id,
+            extracted_text=cv_text,
+            job_title=job_title,
+            industry=industry,
+            user_id=user_id
+        )
+
+    # Save report linked to cv_upload
+    save_report(session_id, result, paid=False,
+                user_id=user_id, cv_upload_id=cv_upload_id)
 
     preview = {k: result[k] for k in [
-        "name","role","overall_score","ai_susceptibility_score",
-        "ai_augment_score","cv_sections","role_breakdown",
-        "automation_risk","job_fit","strengths"
+        "name", "role", "overall_score", "ai_susceptibility_score",
+        "ai_augment_score", "cv_sections", "role_breakdown",
+        "automation_risk", "job_fit", "strengths"
     ] if k in result}
 
     return jsonify({"session_id": session_id, "preview": preview})
@@ -316,15 +363,75 @@ def toggle_roadmap(item_id):
 @app.route("/api/user/link-report", methods=["POST"])
 @jwt_required()
 def link_report():
-    """Link an anonymous session report to the logged-in user."""
+    """Link anonymous session report + CV upload to the logged-in user."""
     user_id    = int(get_jwt_identity())
     session_id = request.get_json().get("session_id")
-    if not session_id: return jsonify({"error":"Missing session_id"}),400
+    if not session_id: return jsonify({"error": "Missing session_id"}), 400
     conn = get_db()
-    conn.execute("UPDATE reports SET user_id=? WHERE session_id=? AND user_id IS NULL", (user_id, session_id))
-    conn.commit()
-    conn.close()
+    conn.execute("UPDATE reports SET user_id=? WHERE session_id=? AND user_id IS NULL",
+                 (user_id, session_id))
+    conn.execute("UPDATE cv_uploads SET user_id=? WHERE session_id=? AND user_id IS NULL",
+                 (user_id, session_id))
+    conn.commit(); conn.close()
     return jsonify({"success": True})
+
+
+# ── CV Storage API ────────────────────────────────────────────────────────────
+
+@app.route("/api/user/cvs", methods=["GET"])
+@jwt_required()
+def list_cvs():
+    user_id = int(get_jwt_identity())
+    uploads = get_user_cv_uploads(user_id)
+    stats   = get_cv_storage_stats(user_id)
+    return jsonify({"uploads": uploads, "stats": stats})
+
+
+@app.route("/api/user/cvs/<int:upload_id>", methods=["GET"])
+@jwt_required()
+def get_cv(upload_id):
+    user_id = int(get_jwt_identity())
+    cv = get_cv_upload(upload_id, user_id)
+    if not cv:
+        return jsonify({"error": "CV not found"}), 404
+    return jsonify(cv)
+
+
+@app.route("/api/user/cvs/<int:upload_id>/download", methods=["GET"])
+@jwt_required()
+def download_cv(upload_id):
+    user_id = int(get_jwt_identity())
+    cv = get_cv_upload(upload_id, user_id)
+    if not cv:
+        return jsonify({"error": "CV not found"}), 404
+    if not cv.get("file_b64"):
+        return jsonify({"error": "No file stored for this CV"}), 404
+
+    file_bytes = base64.b64decode(cv["file_b64"])
+    ext        = cv.get("file_type", "txt")
+    mime_map   = {"pdf": "application/pdf",
+                  "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                  "txt": "text/plain"}
+    mime = mime_map.get(ext, "application/octet-stream")
+    filename = cv.get("filename") or f"cv_{upload_id}.{ext}"
+
+    return send_file(
+        io.BytesIO(file_bytes),
+        as_attachment=True,
+        download_name=filename,
+        mimetype=mime
+    )
+
+
+@app.route("/api/user/cvs/<int:upload_id>", methods=["DELETE"])
+@jwt_required()
+def delete_cv(upload_id):
+    user_id = int(get_jwt_identity())
+    deleted = delete_cv_upload(upload_id, user_id)
+    if not deleted:
+        return jsonify({"error": "CV not found or already deleted"}), 404
+    return jsonify({"success": True})
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
