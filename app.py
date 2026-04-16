@@ -459,10 +459,9 @@ def health():
     }
     try:
         from database import _q
-        result = _q("SELECT COUNT(*) as c FROM users", fetchone=True)
+        result = _q("SELECT COUNT(*) as c FROM users", one=True)
         status["db_connected"] = True
         status["users_count"] = (result or {}).get("c", 0)
-        # Check tables exist
         if os.getenv("DATABASE_URL"):
             tables = _q("""SELECT table_name FROM information_schema.tables 
                           WHERE table_schema='public'""", many=True)
