@@ -465,6 +465,45 @@ input::placeholder{color:var(--ink4)}
 
 .dash-spinner{text-align:center;padding:32px;color:var(--ink4);font-family:'Syne',sans-serif;font-size:10px;letter-spacing:.1em;text-transform:uppercase}
 
+
+.dash-tab{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border:1px solid var(--border);background:none;border-radius:100px;padding:6px 14px;cursor:pointer;color:var(--ink4);transition:all .15s}
+.dash-tab.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+.dash-tab:hover:not(.active){background:var(--bg2);color:var(--ink)}
+.cv-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rlg);padding:14px 16px;margin-bottom:8px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.cv-card-left{flex:1;min-width:0}
+.cv-card-name{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cv-card-meta{font-family:'Syne',sans-serif;font-size:9px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink4);margin-bottom:6px}
+.cv-card-preview{font-size:11px;color:var(--ink3);font-weight:300;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cv-card-actions{display:flex;flex-direction:column;gap:5px;flex-shrink:0}
+.cv-btn{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:100px;border:1px solid var(--border);background:none;cursor:pointer;color:var(--ink4);transition:all .15s;white-space:nowrap}
+.cv-btn:hover{background:var(--bg1);color:var(--ink)}
+.cv-btn.del:hover{background:var(--rbg);color:var(--red);border-color:var(--rbd)}
+.storage-bar{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:14px}
+.storage-info{flex:1}
+.storage-label{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink4);margin-bottom:4px}
+.storage-track{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
+.storage-fill{height:100%;background:var(--teal);border-radius:2px;transition:width .5s ease}
+
+
+/* ── CV LIBRARY ──────────────────────────────────────────────── */
+.dash-nav{display:flex;gap:4px;background:var(--bg2);border-radius:10px;padding:3px;margin-bottom:24px}
+.dash-nav-tab{flex:1;font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;border:none;background:none;border-radius:8px;padding:8px 4px;cursor:pointer;color:var(--ink4);transition:all .15s}
+.dash-nav-tab.active{background:var(--bg1);color:var(--teal);box-shadow:0 1px 3px rgba(0,0,0,.07)}
+.cv-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rlg);padding:14px 16px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px;transition:border-color .15s}
+.cv-card:hover{border-color:var(--teal-bd)}
+.cv-card-ico{width:38px;height:38px;border-radius:8px;background:var(--bg1);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:'Syne',sans-serif;font-size:9px;font-weight:700;color:var(--ink4);text-transform:uppercase}
+.cv-card-body{flex:1;min-width:0}
+.cv-card-name{font-size:13px;font-weight:500;color:var(--ink);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cv-card-meta{font-size:11px;color:var(--ink4);font-weight:300;margin-bottom:6px}
+.cv-card-preview{font-size:11px;color:var(--ink3);font-weight:300;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.cv-card-actions{display:flex;gap:6px;margin-top:8px}
+.cv-act-btn{font-family:'Syne',sans-serif;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:100px;border:1px solid var(--border);background:var(--bg1);color:var(--ink3);cursor:pointer;transition:all .15s}
+.cv-act-btn:hover{border-color:var(--teal-bd);color:var(--teal);background:var(--teal-bg)}
+.cv-act-btn.del:hover{border-color:var(--rbd);color:var(--red);background:var(--rbg)}
+.storage-bar-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:16px}
+.storage-bar-track{height:5px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:8px 0 4px}
+.storage-bar-fill{height:100%;background:var(--teal);border-radius:3px;transition:width .6s ease}
+
 </style>
 </head>
 <body>
@@ -560,13 +599,18 @@ input::placeholder{color:var(--ink4)}
 const API = '';
 let fc = '', sid = null, pdata = null;
 
+let currentCvUploadId = null;
+
 async function extractFileText(file) {
   const form = new FormData();
   form.append('file', file);
+  form.append('job_title', document.getElementById('job-title').value.trim());
+  form.append('industry', document.getElementById('industry').value.trim());
   try {
     const res = await fetch(`${API}/api/extract-text`, { method: 'POST', body: form });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
+    if (data.cv_upload_id) currentCvUploadId = data.cv_upload_id;
     return data.text || '';
   } catch(e) {
     try { return await file.text(); } catch(_) { return ''; }
@@ -637,7 +681,7 @@ async function runAnalysis() {
   try {
     const r = await fetch(`${API}/api/analyse`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cv_text: cv, job_title: document.getElementById('job-title').value.trim(), industry: document.getElementById('industry').value.trim() })
+      body: JSON.stringify({ cv_text: cv, job_title: document.getElementById('job-title').value.trim(), industry: document.getElementById('industry').value.trim(), cv_upload_id: currentCvUploadId })
     });
     const d = await r.json(); if (d.error) throw new Error(d.error);
     sid = d.session_id; pdata = d.preview; renderPreview(d.preview);
@@ -820,7 +864,7 @@ function resetTool() {
   document.getElementById('job-title').value = '';
   document.getElementById('industry').value = '';
   document.getElementById('fname').textContent = '';
-  fc = ''; sid = null; pdata = null;
+  fc = ''; sid = null; pdata = null; currentCvUploadId = null;
 }
 
 // ═══════════════ AUTH + DASHBOARD ═══════════════
@@ -1114,6 +1158,122 @@ async function toggleRM(itemId,completed,el){
   await fetch('/api/user/roadmap/'+itemId+'/toggle',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},body:JSON.stringify({completed})});
 }
 
+
+// ═══════════════ CV LIBRARY ═══════════════
+let currentDashTab = 'reports';
+
+function switchDashTab(tab) {
+  currentDashTab = tab;
+  ['reports','cvs'].forEach(t => {
+    const btn = document.getElementById('dtab-'+t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  if (tab === 'reports') renderDashboard();
+  else loadCVLibrary();
+}
+
+async function loadCVLibrary() {
+  const token = getToken();
+  if (!token) return;
+  const body = document.getElementById('dash-body');
+  body.innerHTML = '<div class="dash-spinner"><span class="spin"></span> Loading CV library…</div>';
+  try {
+    const r    = await fetch('/api/user/cvs', { headers: { 'Authorization': 'Bearer ' + token }});
+    const data = await r.json();
+    renderCVLibrary(data.uploads || [], data.stats || {});
+  } catch(e) {
+    body.innerHTML = '<div class="dash-spinner">Failed to load.</div>';
+  }
+}
+
+function renderCVLibrary(uploads, stats) {
+  const body   = document.getElementById('dash-body');
+  const totalMB = stats.total_mb || 0;
+  const pct     = Math.min(Math.round(totalMB / 100 * 100), 100);
+
+  let html = `
+  <div class="storage-bar-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div style="font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)">Storage used</div>
+      <div style="font-family:'Syne',sans-serif;font-size:10px;font-weight:700;color:var(--teal)">${totalMB} MB <span style="color:var(--ink4);font-weight:400">/ 100 MB</span></div>
+    </div>
+    <div class="storage-bar-track"><div class="storage-bar-fill" style="width:${pct}%"></div></div>
+    <div style="font-size:11px;color:var(--ink4);font-weight:300">${stats.total_uploads || 0} CV${stats.total_uploads !== 1 ? 's' : ''} stored</div>
+  </div>`;
+
+  if (!uploads.length) {
+    html += `<div class="empty-state">
+      <div class="empty-ico">📂</div>
+      <div class="empty-t">No CVs stored yet</div>
+      <div class="empty-s">When you upload a CV while signed in, it's saved here automatically.</div>
+    </div>`;
+  } else {
+    uploads.forEach(cv => {
+      const date  = new Date(cv.created_at).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+      const ext   = (cv.file_type || 'txt').toUpperCase();
+      const size  = cv.file_size_kb >= 1024
+        ? (cv.file_size_kb/1024).toFixed(1)+' MB'
+        : (cv.file_size_kb||0).toFixed(0)+' KB';
+      const rBadge = cv.report_paid
+        ? `<span style="font-family:Syne,sans-serif;font-size:9px;font-weight:700;padding:2px 7px;border-radius:100px;background:var(--gbg);color:var(--green);border:1px solid var(--gbd)">Full report</span>`
+        : cv.overall_score
+          ? `<span style="font-family:Syne,sans-serif;font-size:9px;font-weight:700;padding:2px 7px;border-radius:100px;background:var(--bg3);color:var(--ink4);border:1px solid var(--border)">Free preview</span>`
+          : '';
+      const scoreStr = cv.overall_score
+        ? `<span style="font-family:'Playfair Display',serif;font-size:14px;font-weight:400;color:${cv.overall_score>=70?'var(--green)':cv.overall_score>=40?'var(--amber)':'var(--red)'}"> ${cv.overall_score}</span> cv score`
+        : '';
+
+      html += `<div class="cv-card">
+        <div class="cv-card-ico">${ext}</div>
+        <div class="cv-card-body">
+          <div class="cv-card-name">${cv.filename || 'CV'}</div>
+          <div class="cv-card-meta">${date} · ${size} ${cv.job_title ? '· ' + cv.job_title : ''} ${cv.industry ? '· ' + cv.industry : ''}</div>
+          ${cv.text_preview ? `<div class="cv-card-preview">${cv.text_preview}…</div>` : ''}
+          <div class="cv-card-actions">
+            ${cv.file_b64 !== '' ? `<button class="cv-act-btn" onclick="downloadCV(${cv.id},'${cv.filename||'cv'}')">⬇ Download</button>` : ''}
+            <button class="cv-act-btn del" onclick="deleteCV(${cv.id}, this)">Delete</button>
+            ${rBadge}
+          </div>
+        </div>
+        ${scoreStr ? `<div style="text-align:center;flex-shrink:0"><div style="font-family:'Playfair Display',serif;font-size:24px;color:${cv.overall_score>=70?'var(--green)':cv.overall_score>=40?'var(--amber)':'var(--red)'}">${cv.overall_score}</div><div style="font-family:'Syne',sans-serif;font-size:8px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink4)">CV score</div></div>` : ''}
+      </div>`;
+    });
+  }
+
+  body.innerHTML = html;
+}
+
+async function downloadCV(uploadId, filename) {
+  const token = getToken();
+  try {
+    const r   = await fetch('/api/user/cvs/'+uploadId, { headers: { 'Authorization': 'Bearer '+token }});
+    const cv  = await r.json();
+    if (cv.error) { alert(cv.error); return; }
+    if (cv.file_b64) {
+      triggerBase64Download(cv.file_b64, cv.filename || filename);
+    } else {
+      // Download as text
+      const blob = new Blob([cv.extracted_text||''], {type:'text/plain'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a'); a.href=url; a.download=(cv.filename||'cv.txt');
+      document.body.appendChild(a); a.click();
+      setTimeout(()=>{URL.revokeObjectURL(url);document.body.removeChild(a)},1000);
+    }
+  } catch(e) { alert('Download failed: '+e.message); }
+}
+
+async function deleteCV(uploadId, btn) {
+  if (!confirm('Delete this CV? This cannot be undone.')) return;
+  const token = getToken();
+  btn.disabled = true; btn.textContent = 'Deleting…';
+  try {
+    const r = await fetch('/api/user/cvs/'+uploadId, { method:'DELETE', headers:{'Authorization':'Bearer '+token}});
+    const d = await r.json();
+    if (d.success) loadCVLibrary();
+    else { alert('Delete failed'); btn.disabled=false; btn.textContent='Delete'; }
+  } catch(e) { alert('Error: '+e.message); btn.disabled=false; btn.textContent='Delete'; }
+}
+
 </script>
 
 <!-- AUTH OVERLAY -->
@@ -1226,7 +1386,10 @@ async function toggleRM(itemId,completed,el){
 <!-- DASHBOARD PANEL -->
 <div class="dash-panel" id="dash-panel">
   <div class="dash-head">
-    <div class="dash-title">My account</div>
+    <div style="display:flex;gap:6px">
+      <button class="dash-tab active" id="dtab-reports" onclick="switchDashTab('reports')">Reports</button>
+      <button class="dash-tab" id="dtab-cvs" onclick="switchDashTab('cvs')">My CVs</button>
+    </div>
     <div style="display:flex;gap:10px;align-items:center">
       <button class="dash-logout" onclick="logout()">Sign out</button>
       <button class="auth-close" onclick="closeDashboard()">
