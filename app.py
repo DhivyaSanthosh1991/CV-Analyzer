@@ -41,9 +41,14 @@ razorpay_client  = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
 
 # Init DB on startup
 with app.app_context():
-    init_db()
-    migrate_db()
-    init_sessions_table()
+    try:
+        init_db()
+        migrate_db()
+        init_sessions_table()
+        print("✓ Database initialised successfully")
+    except Exception as e:
+        print(f"✗ Database init error: {e}")
+        print("App will start but DB features won't work until connection is fixed")
 
 # ── System prompt ─────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an expert CV analyst and AI workforce advisor. Analyse the CV and return ONLY valid JSON — no markdown, no backticks, no preamble.
