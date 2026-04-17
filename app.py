@@ -250,10 +250,14 @@ def analyse():
             extracted_text=cv_text,
             job_title=job_title,
             industry=industry,
-            user_id=user_id  # None if anonymous — linked on sign-in
+            user_id=user_id
         )
 
-    # Save report linked to cv_upload
+    # If user is logged in, link any existing anonymous uploads for this session
+    if user_id:
+        link_items_to_user(session_id, user_id)
+
+    # Save report linked to cv_upload and user
     save_report(session_id, result, paid=False,
                 user_id=user_id, cv_upload_id=cv_upload_id)
 
@@ -432,6 +436,14 @@ def link_report():
 
 
 # ── CV Storage API ────────────────────────────────────────────────────────────
+
+
+@app.route("/api/user/reports", methods=["GET"])
+@jwt_required()
+def user_reports():
+    user_id = int(get_jwt_identity())
+    reports = get_user_reports(user_id)
+    return jsonify(reports)
 
 @app.route("/api/user/cvs", methods=["GET"])
 @jwt_required()
