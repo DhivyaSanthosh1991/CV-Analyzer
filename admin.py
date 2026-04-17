@@ -348,25 +348,41 @@ def admin_panel(secret_key):
 @admin_bp.route("/admin/api/stats")
 @require_admin
 def admin_stats():
-    return jsonify(db_stats())
+    try:
+        return jsonify(db_stats())
+    except Exception as e:
+        return jsonify({"total_users":0,"total_cvs":0,"total_reports":0,
+                        "paid_reports":0,"total_storage_mb":0,"error":str(e)})
 
 
 @admin_bp.route("/admin/api/users")
 @require_admin
 def admin_users():
-    return jsonify(admin_get_users() or [])
+    try:
+        return jsonify(admin_get_users() or [])
+    except Exception as e:
+        print(f"admin_users error: {e}")
+        return jsonify([])
 
 
 @admin_bp.route("/admin/api/cvs")
 @require_admin
 def admin_cvs():
-    return jsonify(admin_get_cvs() or [])
+    try:
+        return jsonify(admin_get_cvs() or [])
+    except Exception as e:
+        print(f"admin_cvs error: {e}")
+        return jsonify([])
 
 
 @admin_bp.route("/admin/api/reports")
 @require_admin
 def admin_reports():
-    return jsonify(admin_get_reports() or [])
+    try:
+        return jsonify(admin_get_reports() or [])
+    except Exception as e:
+        print(f"admin_reports error: {e}")
+        return jsonify([])
 
 
 @admin_bp.route("/admin/api/cv/<int:upload_id>")
