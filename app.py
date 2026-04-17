@@ -328,7 +328,6 @@ def verify_payment():
     os.makedirs(reports_dir, exist_ok=True)
     pdf_path = os.path.join(reports_dir, f"{session_id}.pdf")
     generate_report_pdf(full_result, pdf_path)
-    session_set(session_id, pdf_b64=pdf_b64)
 
     pdf_b64 = ""
     try:
@@ -336,6 +335,7 @@ def verify_payment():
             pdf_b64 = base64.b64encode(f.read()).decode("utf-8")
     except Exception:
         pass
+    session_set(session_id, pdf_b64=pdf_b64)
 
     # Send email — use registered email if available
     name       = full_result.get("name","Professional")
@@ -369,7 +369,9 @@ def verify_payment():
         save_roadmap_progress(user_id, report_id, roadmap)
 
     paid_sections = {k: full_result[k] for k in [
-        "strategic_position","upskilling_roadmap","top_improvements","ai_systems"
+        "upskilling_roadmap","cv_improvements","action_plan",
+        "strategic_direction","human_edge","career_moat",
+        "ai_tools_replacing","ai_tools_to_adopt"
     ] if k in full_result}
 
     return jsonify({
