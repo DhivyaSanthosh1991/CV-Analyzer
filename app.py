@@ -51,57 +51,91 @@ with app.app_context():
         print("App will start but DB features won't work until connection is fixed")
 
 # ── System prompt ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """You are an expert CV analyst and AI workforce advisor. Analyse the CV and return ONLY valid JSON — no markdown, no backticks, no preamble.
+SYSTEM_PROMPT = """You are WorkMoat's AI Diagnostic Engine. Analyze the CV provided and return ONLY valid JSON — no markdown, no backticks, no preamble, no HTML.
 
-Return exactly this structure:
+SCORING RUBRICS (score each 0-100):
+
+CV_QUALITY — Weighted composite:
+Contact completeness ×0.15 | Summary/value-prop ×0.20 | Experience quantification ×0.25 | Skills currency & relevance ×0.20 | Formatting/ATS readiness ×0.20
+
+AI_SUSCEPTIBILITY — Score the tasks, not the job title. High = repetitive, rule-based, data-processing, pattern-matching. Low = creativity, judgment, emotional intelligence, physical presence.
+
+AI_AUGMENT_POTENTIAL — How much could AI multiply this person's output? High = mature AI tooling in domain + skills position them to adopt it.
+
+JOB_FIT — Score against role inferred from CV. If TARGET_ROLE is provided, score against that instead.
+
+AUTOMATION_RISK — Realistic % of listed tasks automatable within 3-5 years. Distinct from Susceptibility: seniority and strategic positioning can lower risk even in a high-susceptibility role.
+
+TONE: Write diagnostically. If risk is HIGH or CRITICAL, be direct and frank — name the cost of inaction. Never flatter to comfort.
+
+Return ONLY this JSON structure:
 {
-  "name": "<detected name or 'Professional'>",
-  "role": "<detected current/target role>",
-  "overall_score": <0-100>,
-  "ai_susceptibility_score": <0-100, higher = more at risk>,
-  "ai_augment_score": <0-100, higher = more augmentable by AI tools>,
-  "cv_sections": {
-    "contact_info": {"score":<0-100>,"feedback":"<1 sentence>","status":"good|warn|info"},
-    "summary":      {"score":<0-100>,"feedback":"<1 sentence>","status":"good|warn|info"},
-    "experience":   {"score":<0-100>,"feedback":"<1 sentence>","status":"good|warn|info"},
-    "skills":       {"score":<0-100>,"feedback":"<1 sentence>","status":"good|warn|info"},
-    "formatting":   {"score":<0-100>,"feedback":"<1 sentence>","status":"good|warn|info"}
-  },
-  "role_breakdown": {
-    "automatable_tasks": ["task1","task2","task3"],
-    "human_tasks": ["task1","task2","task3"],
-    "automation_pct": <0-100>
-  },
+  "name": "<full name from CV or 'Professional'>",
+  "role": "<current/target role>",
+  "overall_score": <CV quality 0-100>,
+  "ai_susceptibility_score": <0-100>,
+  "ai_augment_score": <0-100>,
+  "job_fit_score": <0-100>,
   "automation_risk": {
-    "level": "low|medium|high",
-    "summary": "<2 sentences>",
-    "timeline": "<e.g. 3-5 years>"
+    "level": "<managed|moderate|high|critical>",
+    "score": <0-100>,
+    "timeline": "<e.g. '2-3 years'>",
+    "at_risk_tasks": ["<task 1>", "<task 2>", "<task 3>"]
   },
-  "ai_systems": {
-    "already_replacing": ["tool1","tool2","tool3"],
-    "augmenting": ["tool1","tool2","tool3"]
+  "cv_breakdown": {
+    "contact": <0-100>,
+    "summary": <0-100>,
+    "experience": <0-100>,
+    "skills": <0-100>,
+    "formatting": <0-100>
   },
-  "job_fit": {
-    "score": <0-100 or null>,
-    "matched_skills": ["s1","s2","s3"],
-    "missing_skills": ["s1","s2","s3"]
+  "strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
+  "gaps": ["<gap 1>", "<gap 2>", "<gap 3>"],
+  "career_moat": {
+    "core_strength": "<1 sentence — irreplaceable hard-to-automate value>",
+    "the_threat": "<1 sentence — most at-risk part of role and why>",
+    "one_move": "<1 specific actionable step with named resource or tool>"
   },
-  "strategic_position": "<3 sentences about their unique career moat and how to defend it>",
+  "ai_tools_replacing": ["<tool/task 1>", "<tool/task 2>"],
+  "ai_tools_to_adopt": ["<tool 1>", "<tool 2>", "<tool 3>"],
   "upskilling_roadmap": [
-    {"priority":"high",  "skill":"<skill name>","reason":"<why this protects them>","resources":"<course/platform>"},
-    {"priority":"high",  "skill":"<skill name>","reason":"<why>","resources":"<where>"},
-    {"priority":"medium","skill":"<skill name>","reason":"<why>","resources":"<where>"},
-    {"priority":"medium","skill":"<skill name>","reason":"<why>","resources":"<where>"},
-    {"priority":"low",   "skill":"<skill name>","reason":"<why>","resources":"<where>"}
+    {"skill": "<skill name>", "priority": "high|medium|low", "why": "<1 sentence>", "resources": "<Platform — Course name>"},
+    {"skill": "<skill name>", "priority": "high|medium|low", "why": "<1 sentence>", "resources": "<Platform — Course name>"},
+    {"skill": "<skill name>", "priority": "high|medium|low", "why": "<1 sentence>", "resources": "<Platform — Course name>"},
+    {"skill": "<skill name>", "priority": "high|medium|low", "why": "<1 sentence>", "resources": "<Platform — Course name>"},
+    {"skill": "<skill name>", "priority": "high|medium|low", "why": "<1 sentence>", "resources": "<Platform — Course name>"}
   ],
-  "top_improvements": [
-    {"priority":"high",  "suggestion":"<concrete CV fix>"},
-    {"priority":"high",  "suggestion":"<concrete CV fix>"},
-    {"priority":"medium","suggestion":"<concrete CV fix>"},
-    {"priority":"low",   "suggestion":"<concrete CV fix>"}
+  "cv_improvements": [
+    {"priority": "high", "action": "<specific CV fix — name section and what to rewrite>"},
+    {"priority": "high", "action": "<specific CV fix>"},
+    {"priority": "medium", "action": "<specific CV fix>"},
+    {"priority": "medium", "action": "<specific CV fix>"},
+    {"priority": "low", "action": "<specific CV fix>"}
   ],
-  "strengths": ["s1","s2","s3","s4"]
-}"""
+  "action_plan": {
+    "days_1_30": [
+      "<CV fix: most urgent specific change>",
+      "<AI tool adoption: specific tool for specific daily task>",
+      "<AI concept: Prompt Engineering — specific free resource>",
+      "<AI awareness: identify 2 tools already active in your industry>"
+    ],
+    "days_31_60": [
+      "<AI course start: platform, course title, first module>",
+      "<AI workflow: build end-to-end AI-assisted workflow for recurring task>",
+      "<AI concept: Agentic AI — map one repetitive task using Make.com/Zapier/n8n>",
+      "<Role signal: specific repositioning move or project to lead>"
+    ],
+    "days_61_90": [
+      "<AI credential: complete HIGH priority course, add to LinkedIn>",
+      "<AI concept: domain-specific AI application with real work output>",
+      "<AI portfolio: shareable deliverable demonstrating AI fluency>",
+      "<Strategic move: next role to target or application to submit>"
+    ]
+  },
+  "strategic_direction": "<2-3 sentences on recommended role evolution for next 12-18 months>",
+  "human_edge": ["<AI-resistant capability 1>", "<AI-resistant capability 2>", "<AI-resistant capability 3>"]
+}
+"""
 
 # ── Helper: get optional current user ────────────────────────────────────────
 def get_current_user_id():
@@ -195,7 +229,7 @@ def analyse():
 
     try:
         message = anthropic_client.messages.create(
-            model="claude-sonnet-4-20250514", max_tokens=1500,
+            model="claude-sonnet-4-20250514", max_tokens=2500,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}]
         )
@@ -223,11 +257,24 @@ def analyse():
     save_report(session_id, result, paid=False,
                 user_id=user_id, cv_upload_id=cv_upload_id)
 
-    preview = {k: result[k] for k in [
-        "name", "role", "overall_score", "ai_susceptibility_score",
-        "ai_augment_score", "cv_sections", "role_breakdown",
-        "automation_risk", "job_fit", "strengths"
-    ] if k in result}
+    # Build preview — all fields the frontend needs for free report
+    preview = {
+        "name":                   result.get("name", "Professional"),
+        "role":                   result.get("role", ""),
+        "overall_score":          result.get("overall_score", 0),
+        "ai_susceptibility_score":result.get("ai_susceptibility_score", 0),
+        "ai_augment_score":       result.get("ai_augment_score", 0),
+        "job_fit_score":          result.get("job_fit_score", 0),
+        "automation_risk":        result.get("automation_risk", {}),
+        "cv_breakdown":           result.get("cv_breakdown", {}),
+        "strengths":              result.get("strengths", []),
+        "gaps":                   result.get("gaps", []),
+        "career_moat":            result.get("career_moat", {}),
+        "ai_tools_replacing":     result.get("ai_tools_replacing", []),
+        "ai_tools_to_adopt":      result.get("ai_tools_to_adopt", []),
+        "human_edge":             result.get("human_edge", []),
+        "strategic_direction":    result.get("strategic_direction", ""),
+    }
 
     return jsonify({"session_id": session_id, "preview": preview})
 
@@ -236,11 +283,12 @@ def create_order():
     data       = request.get_json()
     session_id = data.get("session_id")
     email      = (data.get("email") or "").strip().lower()
-    if not session_id or session_id not in sessions:
-        return jsonify({"error": "Invalid session"}), 400
+    sess = session_get(session_id)
+    if not sess:
+        return jsonify({"error": "Session expired — please re-analyse your CV"}), 400
     if not email or "@" not in email:
         return jsonify({"error": "Valid email required"}), 400
-    sessions[session_id]["email"] = email
+    session_set(session_id, email=email)
     try:
         order = razorpay_client.order.create({
             "amount": REPORT_PRICE_PAISE, "currency": "INR",
@@ -337,23 +385,14 @@ def verify_payment():
 
 @app.route("/api/download/<session_id>")
 def download_report(session_id):
-    session = sessions.get(session_id)
+    session = session_get(session_id)
     if not session or not session.get("paid"):
         return jsonify({"error": "Unauthorized"}), 403
-    pdf_path = session.get("pdf_path")
-    if not pdf_path or not os.path.exists(pdf_path):
-        return jsonify({"error": "Report not found"}), 404
-    name = session["result"].get("name","report").replace(" ","_")
-    return send_file(pdf_path, as_attachment=True,
-                     download_name=f"WorkMoat_Report_{name}.pdf",
-                     mimetype="application/pdf")
-
-# ── User dashboard API ────────────────────────────────────────────────────────
-@app.route("/api/user/reports", methods=["GET"])
-@jwt_required()
-def user_reports():
-    user_id = int(get_jwt_identity())
-    return jsonify(get_user_reports(user_id))
+    if not session.get("pdf_b64"):
+        return jsonify({"error": "PDF not available"}), 404
+    name = (session.get("result") or {}).get("name", "report").replace(" ", "_")
+    return jsonify({"pdf_b64": session["pdf_b64"],
+                    "pdf_name": f"WorkMoat_Report_{name}.pdf"})
 
 @app.route("/api/user/report/<session_id>/pdf", methods=["GET"])
 @jwt_required()
