@@ -825,7 +825,12 @@ function renderFull(paid, dlUrl, emailSent, email, pdfB64, pdfName) {
 
   const emailBanner = emailSent
     ? `<div class="banner ok"><svg class="bico" viewBox="0 0 16 16" fill="none"><path d="M2 4l6 5 6-5M2 4h12v8H2V4z" stroke="#1a7a45" stroke-width="1.2" stroke-linejoin="round"/></svg><div><div class="bt2">Report sent to ${email}</div><div class="bs">Check your inbox — PDF attached. Check spam if needed.</div></div></div>`
-    : `<div class="banner wa"><svg class="bico" viewBox="0 0 16 16" fill="none"><path d="M8 6v4M8 12v.5M7 2L1 14h14L9 2a1.15 1.15 0 00-2 0z" stroke="#a05c10" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg><div><div class="bt2">Email unavailable — use download below</div><div class="bs">Your PDF has been generated and is ready to download.</div></div></div>`;
+    : `<div class="banner wa"><svg class="bico" viewBox="0 0 16 16" fill="none"><path d="M8 6v4M8 12v.5M7 2L1 14h14L9 2a1.15 1.15 0 00-2 0z" stroke="#a05c10" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg><div><div class="bt2">Your PDF is downloading now</div><div class="bs">Saved to your Downloads folder automatically.</div></div></div>`;
+
+  // Auto-trigger download
+  if(!emailSent && pdfB64 && pdfName){
+    setTimeout(()=>triggerBase64Download(pdfB64,pdfName), 600);
+  }
 
   const dlId = 'dl-btn-' + Date.now();
 
@@ -978,12 +983,15 @@ async function doReset(){
   btn.disabled=false;btn.textContent='Reset & sign in →';
 }
 
-function onAuthSuccess(d){
+async function onAuthSuccess(d){
   setToken(d.token);localStorage.setItem('wm_user',JSON.stringify(d.user));
   currentUser=d.user;updateNavUser(d.user);closeAuth();clearMsgs();
-  if(sid)linkReport(sid);
+  // Link current session to user BEFORE opening dashboard so reports show
+  if(sid){
+    await linkReport(sid);
+  }
   resumePendingAnalysis();
-  setTimeout(()=>{if(!window._pendingCV)openDashboard();},300);
+  setTimeout(()=>{if(!window._pendingCV)openDashboard();},500);
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
@@ -1018,13 +1026,12 @@ function logout(){clearToken();currentUser=null;clearNavUser();closeDashboard()}
 async function restoreSession(){
   const token=getToken();if(!token)return;
   try{
-    const stored=localStorage.getItem('wm_user');
-    if(stored){currentUser=JSON.parse(stored);updateNavUser(currentUser)}
     const r=await fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+token}});
-    if(!r.ok){clearToken();clearNavUser();return}
+    if(!r.ok){clearToken();clearNavUser();localStorage.removeItem('wm_user');return;}
     const user=await r.json();
+    if(user.error){clearToken();clearNavUser();localStorage.removeItem('wm_user');return;}
     currentUser=user;localStorage.setItem('wm_user',JSON.stringify(user));updateNavUser(user);
-  }catch(e){console.warn('Session restore:',e)}
+  }catch(e){console.warn('Session restore:',e);}
 }
 
 async function linkReport(sessionId){
@@ -1039,7 +1046,13 @@ async function loadDashboard(){
   body.innerHTML='<div class="dash-spinner"><span class="spin"></span> Loading…</div>';
   try{
     const r=await fetch('/api/user/reports',{headers:{'Authorization':'Bearer '+token}});
-    dashReports=await r.json();renderDashboard();
+    if(r.status===401||r.status===403){clearToken();closeDashboard();openAuth();return;}
+    const data=await r.json();
+    if(!Array.isArray(data)){
+      // Token invalid for new DB — clear and re-login
+      clearToken();closeDashboard();openAuth();return;
+    }
+    dashReports=data;renderDashboard();
   }catch(e){body.innerHTML='<div class="dash-spinner">Failed to load. Please try again.</div>'}
 }
 
@@ -1174,15 +1187,19 @@ function switchDashTab(tab) {
 
 async function loadCVLibrary() {
   const token = getToken();
-  if (!token) return;
+  if (!token) { openAuth(); return; }
   const body = document.getElementById('dash-body');
   body.innerHTML = '<div class="dash-spinner"><span class="spin"></span> Loading CV library…</div>';
   try {
-    const r    = await fetch('/api/user/cvs', { headers: { 'Authorization': 'Bearer ' + token }});
+    const r = await fetch('/api/user/cvs', { headers: { 'Authorization': 'Bearer ' + token }});
+    if (r.status === 401 || r.status === 403) {
+      clearToken(); closeDashboard(); openAuth(); return;
+    }
     const data = await r.json();
+    if (data.error) { body.innerHTML = `<div class="dash-spinner">${data.error}</div>`; return; }
     renderCVLibrary(data.uploads || [], data.stats || {});
   } catch(e) {
-    body.innerHTML = '<div class="dash-spinner">Failed to load.</div>';
+    body.innerHTML = '<div class="dash-spinner">Failed to load — please try again.</div>';
   }
 }
 
