@@ -349,8 +349,8 @@ def save_roadmap_progress(user_id, report_id, skills):
                (user_id, report_id, skill["skill"], skill.get("priority","medium")))
 
 def toggle_roadmap_item(user_id, item_id, completed):
-    _q(f"UPDATE roadmap_progress SET completed={PH}, updated_at={NOW} WHERE id={PH} AND user_id={PH}",
-       (1 if completed else 0, item_id, user_id))
+    sql = f"UPDATE roadmap_progress SET completed={PH}, updated_at={NOW} WHERE id={PH} AND user_id={PH}"
+    _q(sql, (1 if completed else 0, item_id, user_id))
 
 def get_roadmap_progress(user_id, report_id):
     return _q(f"""SELECT id,skill,priority,completed,notes,updated_at
@@ -361,24 +361,44 @@ def get_roadmap_progress(user_id, report_id):
 
 # ── Admin helpers ─────────────────────────────────────────────────────────────
 def admin_stats():
+    def safe_count(sql):
+        try:
+            r = _q(sql, one=True)
+            if r is None: return 0
+            v = list(r.values())[0] if hasattr(r, 'values') else r[0]
+            return int(v) if v is not None else 0
+        except: return 0
+    def safe_sum(sql):
+        try:
+            r = _q(sql, one=True)
+            if r is None: return 0
+            v = list(r.values())[0] if hasattr(r, 'values') else r[0]
+            return float(v) if v is not None else 0
+        except: return 0
     return {
-        "total_users":      (_q("SELECT COUNT(*) as c FROM users",                    one=True) or {}).get("c", 0),
-        "total_cvs":        (_q("SELECT COUNT(*) as c FROM cv_uploads",               one=True) or {}).get("c", 0),
-        "total_reports":    (_q("SELECT COUNT(*) as c FROM reports",                  one=True) or {}).get("c", 0),
-        "paid_reports":     (_q("SELECT COUNT(*) as c FROM reports WHERE paid=1",     one=True) or {}).get("c", 0),
-        "total_storage_mb": (_q("SELECT ROUND(SUM(file_size_kb)/1024.0,2) as s FROM cv_uploads", one=True) or {}).get("s") or 0,
+        "total_users":      safe_count("SELECT COUNT(*) as c FROM users"),
+        "total_cvs":        safe_count("SELECT COUNT(*) as c FROM cv_uploads"),
+        "total_reports":    safe_count("SELECT COUNT(*) as c FROM reports"),
+        "paid_reports":     safe_count("SELECT COUNT(*) as c FROM reports WHERE paid=1"),
+        "total_storage_mb": safe_sum("SELECT COALESCE(ROUND(SUM(file_size_kb)/1024.0,2),0) as s FROM cv_uploads"),
     }
 
 def admin_get_users():
-    return _q(f"""SELECT u.id, u.email, u.name, u.created_at, u.last_login,
-        COUNT(DISTINCT c.id) as cv_count,
-        COUNT(DISTINCT r.id) as report_count,
-        SUM(CASE WHEN r.paid=1 THEN 1 ELSE 0 END) as paid_count
-        FROM users u
-        LEFT JOIN cv_uploads c ON c.user_id=u.id
-        LEFT JOIN reports    r ON r.user_id=u.id
-        GROUP BY u.id, u.email, u.name, u.created_at, u.last_login
-        ORDER BY u.created_at DESC""", many=True)
+    # Subquery approach avoids GROUP BY issues across SQLite/PostgreSQL
+    users = _q("SELECT id, email, name, created_at, last_login FROM users ORDER BY created_at DESC", many=True) or []
+    result = []
+    for u in users:
+        uid = u["id"] if isinstance(u, dict) else u[0]
+        cv_count   = (_q(f"SELECT COUNT(*) as c FROM cv_uploads WHERE user_id={PH}", (uid,), one=True) or {})
+        rep_count  = (_q(f"SELECT COUNT(*) as c FROM reports WHERE user_id={PH}", (uid,), one=True) or {})
+        paid_count = (_q(f"SELECT COUNT(*) as c FROM reports WHERE user_id={PH} AND paid=1", (uid,), one=True) or {})
+        row = dict(u) if hasattr(u, 'keys') else {"id":u[0],"email":u[1],"name":u[2],"created_at":u[3],"last_login":u[4]}
+        def gv(d): return list(d.values())[0] if hasattr(d,'values') and d else 0
+        row["cv_count"]    = gv(cv_count)
+        row["report_count"]= gv(rep_count)
+        row["paid_count"]  = gv(paid_count)
+        result.append(row)
+    return result
 
 def admin_get_cvs():
     return _q(f"""SELECT c.id, c.filename, c.file_type, c.file_size_kb,
